@@ -246,7 +246,7 @@ const LoadView: React.FC<{ edit?: boolean; add?: boolean }> = ({
           >
             Back
           </button>
-          {!edit && (
+          {!edit && !add && (
             <>
               <button
                 className="px-3 py-1 bg-green-600 text-white rounded"

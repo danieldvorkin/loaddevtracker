@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useMachine } from "@xstate/react";
 import loadMachine from "../../machines/loadMachine";
+import type { LoadEvent } from "../../machines/loadMachine";
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { db, auth } from "../../lib/firebase";
 import { signInAnonymously } from "firebase/auth";
@@ -10,40 +11,59 @@ const NewLoadForm = () => {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
 
-  const emptyEntry = {
+  type EntryInput = {
+    powderGrains: string;
+    mv: string;
+    sd: string;
+    shotCount: string;
+    es: string;
+  };
+
+  const emptyEntry: EntryInput = {
     powderGrains: "",
     mv: "",
     sd: "",
     shotCount: "",
     es: "",
   };
-  const [entry, setEntry] = useState<any>(emptyEntry);
+  const [entry, setEntry] = useState<EntryInput>(emptyEntry);
 
   const creating = state.matches("creating");
   const ready = state.matches("ready");
   const failure = state.matches("failure");
 
+  type MachineCtx = {
+    loadData?: {
+      entries?: unknown[];
+      name?: string;
+      description?: string;
+    } | null;
+    error?: { message?: string } | null;
+  };
+
   useEffect(() => {
     if (failure) {
-      const err = (state.context as any)?.error;
+      const err = (state.context as unknown as MachineCtx)?.error;
       console.error("Create load failed (UI):", err);
       try {
         const msg = err?.message ?? JSON.stringify(err ?? "Unknown error");
         // visible alert for quick debugging
         alert("Create load failed: " + msg);
-      } catch (e) {
+      } catch {
         alert("Create load failed (see console)");
       }
     }
   }, [failure, state.context]);
 
-  const entries = (state.context as any)?.loadData?.entries || [];
+  const entries =
+    ((state.context as unknown as MachineCtx)?.loadData
+      ?.entries as unknown[]) || [];
 
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name) return;
     // transition machine to creating
-    send({ type: "CREATE", data: { name, description } });
+    send({ type: "CREATE", data: { name, description } } as LoadEvent);
 
     (async () => {
       try {
@@ -55,13 +75,15 @@ const NewLoadForm = () => {
         // eslint-disable-next-line no-console
         console.info(
           "auth.currentUser (after sign-in):",
-          auth.currentUser && (auth.currentUser as any).uid,
+          (auth.currentUser as { uid?: string } | null)?.uid,
         );
 
-        const currentUid = (auth.currentUser as any)?.uid ?? null;
+        const currentUid =
+          (auth.currentUser as { uid?: string } | null)?.uid ?? null;
         // include any entries added in the local machine state when creating
         const entriesForCreate =
-          (state.context as any)?.loadData?.entries ?? [];
+          ((state.context as unknown as MachineCtx)?.loadData
+            ?.entries as unknown[]) ?? [];
         const docRef = await addDoc(collection(db, "loads"), {
           name,
           description,
@@ -74,16 +96,11 @@ const NewLoadForm = () => {
         console.info("Created load doc id:", docRef.id);
         send({
           type: "CREATED",
-          data: {
-            id: docRef.id,
-            name,
-            description,
-            entries: entriesForCreate,
-          } as any,
-        });
-      } catch (err: any) {
+          data: { id: docRef.id, name, description, entries: entriesForCreate },
+        } as LoadEvent);
+      } catch (err: unknown) {
         console.error("Create load failed:", err);
-        send({ type: "ERROR", data: err } as any);
+        send({ type: "ERROR", data: err } as LoadEvent);
       }
     })();
   };
@@ -97,12 +114,12 @@ const NewLoadForm = () => {
       shotCount: Number(entry.shotCount) || 0,
       es: Number(entry.es) || 0,
     };
-    send({ type: "ADD_ENTRY", entry: parsed });
+    send({ type: "ADD_ENTRY", entry: parsed } as LoadEvent);
     setEntry(emptyEntry);
   };
 
   const handleRemove = (id: number) =>
-    send({ type: "REMOVE_ENTRY", entryId: id });
+    send({ type: "REMOVE_ENTRY", entryId: id } as LoadEvent);
 
   return (
     <div>
@@ -143,13 +160,17 @@ const NewLoadForm = () => {
           {failure && (
             <div className="text-red-600">
               <div>Failed to create load. Try again.</div>
-              {((state.context as any)?.error as any)?.message ? (
+              {(state.context as unknown as MachineCtx)?.error?.message ? (
                 <div className="mt-2 text-sm">
-                  {(state.context as any).error.message}
+                  {(state.context as unknown as MachineCtx).error?.message}
                 </div>
               ) : (
                 <pre className="mt-2 text-sm whitespace-pre-wrap">
-                  {JSON.stringify((state.context as any).error, null, 2)}
+                  {JSON.stringify(
+                    (state.context as unknown as MachineCtx).error,
+                    null,
+                    2,
+                  )}
                 </pre>
               )}
             </div>
@@ -162,10 +183,11 @@ const NewLoadForm = () => {
 
           <div className="mt-2 mb-4">
             <div className="text-lg font-medium">
-              {(state.context as any)?.loadData?.name || name}
+              {(state.context as unknown as MachineCtx)?.loadData?.name || name}
             </div>
             <div className="text-sm text-gray-600">
-              {(state.context as any)?.loadData?.description || description}
+              {(state.context as unknown as MachineCtx)?.loadData
+                ?.description || description}
             </div>
           </div>
 
@@ -173,30 +195,37 @@ const NewLoadForm = () => {
             {(entries || [])
               .slice()
               .reverse()
-              .map((ent: any) => (
-                <li
-                  key={ent.id}
-                  className="flex justify-between items-center border rounded p-2"
-                >
-                  <div>
-                    <div className="font-medium">
-                      Powder: {ent.powderGrains} gr
+              .map((ent) => {
+                const e = ent as Record<string, unknown>;
+                const idVal = Number(e.id ?? NaN);
+                return (
+                  <li
+                    key={String(e.id ?? "")}
+                    className="flex justify-between items-center border rounded p-2"
+                  >
+                    <div>
+                      <div className="font-medium">
+                        Powder: {String(e.powderGrains ?? "")} gr
+                      </div>
+                      <div className="text-sm text-gray-600">
+                        MV: {String(e.mv ?? "")} | SD: {String(e.sd ?? "")} |
+                        Shots: {String(e.shotCount ?? "")} | ES:{" "}
+                        {String(e.es ?? "")}
+                      </div>
                     </div>
-                    <div className="text-sm text-gray-600">
-                      MV: {ent.mv} | SD: {ent.sd} | Shots: {ent.shotCount} | ES:{" "}
-                      {ent.es}
+                    <div>
+                      <button
+                        onClick={() =>
+                          handleRemove(Number.isNaN(idVal) ? 0 : idVal)
+                        }
+                        className="px-3 py-1 bg-red-600 text-white rounded"
+                      >
+                        Remove
+                      </button>
                     </div>
-                  </div>
-                  <div>
-                    <button
-                      onClick={() => handleRemove(ent.id)}
-                      className="px-3 py-1 bg-red-600 text-white rounded"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                </li>
-              ))}
+                  </li>
+                );
+              })}
           </ul>
 
           <form

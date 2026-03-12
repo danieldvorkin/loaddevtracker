@@ -55,7 +55,7 @@ const LoadChart: React.FC<{ data: Entry[] }> = ({ data }) => {
       return { ...r, composite };
     });
 
-    const mostStableIndex = points.reduce((bestIdx, p, idx, a) => {
+    const mostStableIndex = points.reduce((bestIdx, _p, idx, a) => {
       if (bestIdx === -1) return 0;
       return a[idx].composite > a[bestIdx].composite ? idx : bestIdx;
     }, -1);
