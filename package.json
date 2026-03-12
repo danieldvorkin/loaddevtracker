@@ -5,15 +5,19 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "test": "vitest",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@firebase-oss/ui-react": "^7.0.2-beta",
+    "@firebase-oss/ui-styles": "^7.0.2-beta",
     "@xstate/react": "^6.1.0",
     "firebase": "^12.10.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "react-router-dom": "^6.30.3",
     "xstate": "^5.28.0"
   },
   "devDependencies": {
@@ -31,6 +35,7 @@
     "tailwindcss": "^3.4.19",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.48.0",
-    "vite": "^7.3.1"
+    "vite": "^7.3.1",
+    "vitest": "^1.0.0"
   }
 }

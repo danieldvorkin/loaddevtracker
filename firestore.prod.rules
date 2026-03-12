@@ -1,0 +1,15 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /loads/{loadId} {
+      // Require authentication and owner to create
+      allow create: if request.auth != null
+        && request.auth.uid == request.resource.data.ownerId
+        && request.resource.data.keys().hasAll(["name", "entries", "ownerId", "createdAt"]);
+
+      // Owner-only read/update/delete
+      allow read, update, delete: if request.auth != null
+        && request.auth.uid == resource.data.ownerId;
+    }
+  }
+}

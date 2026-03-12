@@ -1,3 +1,5 @@
+@import "@firebase-oss/ui-styles/tailwind";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
