@@ -5,6 +5,7 @@ import type { LoadEvent } from "../../machines/loadMachine";
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { db, auth } from "../../lib/firebase";
 import { signInAnonymously } from "firebase/auth";
+import { addPendingLoad } from "../../lib/offline";
 
 const NewLoadForm = () => {
   const [state, send] = useMachine(loadMachine);
@@ -64,26 +65,40 @@ const NewLoadForm = () => {
     if (!name) return;
     // transition machine to creating
     send({ type: "CREATE", data: { name, description } } as LoadEvent);
-
     (async () => {
+      // If navigator reports offline, save locally and mark as created with a local id.
+      const entriesForCreate =
+        ((state.context as unknown as MachineCtx)?.loadData
+          ?.entries as unknown[]) ?? [];
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        const pending = addPendingLoad({
+          name,
+          description,
+          entries: entriesForCreate,
+        });
+        send({
+          type: "CREATED",
+          data: {
+            id: pending.localId,
+            name,
+            description,
+            entries: entriesForCreate,
+          },
+        } as LoadEvent);
+        try {
+          // Inform user they saved locally
+          alert("No network: saved locally. Use Sync to upload when online.");
+        } catch {
+          // ignore
+        }
+        return;
+      }
+
       try {
-        // Debug: log current user before sign-in
-        // eslint-disable-next-line no-console
-        console.info("auth.currentUser (before sign-in):", auth.currentUser);
         if (!auth.currentUser) await signInAnonymously(auth);
-        // Debug: log current user after ensuring auth
-        // eslint-disable-next-line no-console
-        console.info(
-          "auth.currentUser (after sign-in):",
-          (auth.currentUser as { uid?: string } | null)?.uid,
-        );
 
         const currentUid =
           (auth.currentUser as { uid?: string } | null)?.uid ?? null;
-        // include any entries added in the local machine state when creating
-        const entriesForCreate =
-          ((state.context as unknown as MachineCtx)?.loadData
-            ?.entries as unknown[]) ?? [];
         const docRef = await addDoc(collection(db, "loads"), {
           name,
           description,
@@ -100,7 +115,28 @@ const NewLoadForm = () => {
         } as LoadEvent);
       } catch (err: unknown) {
         console.error("Create load failed:", err);
-        send({ type: "ERROR", data: err } as LoadEvent);
+        // Fall back to local save if network error
+        try {
+          const pending = addPendingLoad({
+            name,
+            description,
+            entries: entriesForCreate,
+          });
+          send({
+            type: "CREATED",
+            data: {
+              id: pending.localId,
+              name,
+              description,
+              entries: entriesForCreate,
+            },
+          } as LoadEvent);
+          alert(
+            "Save failed online: saved locally. Use Sync to upload when online.",
+          );
+        } catch (e) {
+          send({ type: "ERROR", data: err } as LoadEvent);
+        }
       }
     })();
   };

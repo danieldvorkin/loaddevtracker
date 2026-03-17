@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { doc, getDoc, updateDoc, deleteDoc } from "firebase/firestore";
 import { db, auth } from "../../lib/firebase";
 import { signInAnonymously } from "firebase/auth";
+import { upsertPendingLoadByServerId } from "../../lib/offline";
 import LoadChart from "../../components/LoadChart";
 
 type LoadData = {
@@ -77,12 +78,40 @@ const LoadView: React.FC<{ edit?: boolean; add?: boolean }> = ({
     }
     try {
       const ref = doc(db, "loads", id);
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        // offline: update local UI and store pending
+        setLoad((l) => (l ? { ...l, name, description } : l));
+        upsertPendingLoadByServerId(id, {
+          name,
+          description,
+          entries: load?.entries ?? [],
+        });
+        alert(
+          "No network: changes saved locally. Use Sync to upload when online.",
+        );
+        navigate(`/loads/${id}/add`);
+        return;
+      }
+
       await updateDoc(ref, { name, description });
       setLoad((l) => (l ? { ...l, name, description } : l));
       // after saving, navigate to add-entry view for this load
       navigate(`/loads/${id}/add`);
     } catch (err) {
       console.error("Failed to update load:", err);
+      // fallback: store pending
+      try {
+        upsertPendingLoadByServerId(id, {
+          name,
+          description,
+          entries: load?.entries ?? [],
+        });
+        alert(
+          "Save failed online: saved locally. Use Sync to upload when online.",
+        );
+      } catch (e) {
+        console.error("Failed to save pending load locally:", e);
+      }
     } finally {
       setSaving(false);
     }
@@ -118,6 +147,24 @@ const LoadView: React.FC<{ edit?: boolean; add?: boolean }> = ({
       const ref = doc(db, "loads", id);
       const current = (load?.entries ?? []) as any[];
       const payload = { entries: [...current, entry] };
+
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        // offline: update UI and store pending
+        setLoad((l) =>
+          l ? { ...l, entries: [...(l.entries ?? []), entry] } : l,
+        );
+        upsertPendingLoadByServerId(id, {
+          name: load?.name ?? "",
+          description: load?.description ?? "",
+          entries: [...(load?.entries ?? []), entry],
+        });
+        alert(
+          "No network: entry saved locally. Use Sync to upload when online.",
+        );
+        navigate(`/loads/${id}`);
+        return;
+      }
+
       // Debug: log auth UID and payload before update
       // eslint-disable-next-line no-console
       console.info(
@@ -134,6 +181,21 @@ const LoadView: React.FC<{ edit?: boolean; add?: boolean }> = ({
       navigate(`/loads/${id}`);
     } catch (err) {
       console.error("Failed to add entry:", err);
+      try {
+        setLoad((l) =>
+          l ? { ...l, entries: [...(l.entries ?? []), entry] } : l,
+        );
+        upsertPendingLoadByServerId(id, {
+          name: load?.name ?? "",
+          description: load?.description ?? "",
+          entries: [...(load?.entries ?? []), entry],
+        });
+        alert(
+          "Save failed online: entry saved locally. Use Sync to upload when online.",
+        );
+      } catch (e) {
+        console.error("Failed to save pending entry locally:", e);
+      }
     } finally {
       setAdding(false);
     }
@@ -186,6 +248,21 @@ const LoadView: React.FC<{ edit?: boolean; add?: boolean }> = ({
           : en,
       );
       const payload = { entries: updatedEntries };
+
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        setLoad((l) => (l ? { ...l, entries: updatedEntries } : l));
+        upsertPendingLoadByServerId(id, {
+          name: load?.name ?? "",
+          description: load?.description ?? "",
+          entries: updatedEntries,
+        });
+        alert(
+          "No network: changes saved locally. Use Sync to upload when online.",
+        );
+        setEditingEntryId(null);
+        return;
+      }
+
       // Debug: log auth UID and payload before update
       // eslint-disable-next-line no-console
       console.info(
@@ -199,6 +276,32 @@ const LoadView: React.FC<{ edit?: boolean; add?: boolean }> = ({
       setEditingEntryId(null);
     } catch (err) {
       console.error("Failed to save entry edit:", err);
+      try {
+        const updatedEntries = (load?.entries ?? []).map((en: any) =>
+          en.id === editingEntryId
+            ? {
+                ...en,
+                powderGrains: Number(editPowderGrains) || 0,
+                mv: Number(editMv) || 0,
+                sd: Number(editSd) || 0,
+                shotCount: Number(editShotCount) || 0,
+                es: Number(editEs) || 0,
+              }
+            : en,
+        );
+        setLoad((l) => (l ? { ...l, entries: updatedEntries } : l));
+        upsertPendingLoadByServerId(id, {
+          name: load?.name ?? "",
+          description: load?.description ?? "",
+          entries: updatedEntries,
+        });
+        alert(
+          "Save failed online: changes saved locally. Use Sync to upload when online.",
+        );
+        setEditingEntryId(null);
+      } catch (e) {
+        console.error("Failed to save pending edit locally:", e);
+      }
     } finally {
       setSavingEntryEdit(false);
     }
@@ -217,6 +320,20 @@ const LoadView: React.FC<{ edit?: boolean; add?: boolean }> = ({
         (en: any) => en.id !== entryId,
       );
       const payload = { entries: filtered };
+
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        setLoad((l) => (l ? { ...l, entries: filtered } : l));
+        upsertPendingLoadByServerId(id, {
+          name: load?.name ?? "",
+          description: load?.description ?? "",
+          entries: filtered,
+        });
+        alert(
+          "No network: removal saved locally. Use Sync to upload when online.",
+        );
+        return;
+      }
+
       // Debug: log auth UID and payload before update
       // eslint-disable-next-line no-console
       console.info(
@@ -229,6 +346,22 @@ const LoadView: React.FC<{ edit?: boolean; add?: boolean }> = ({
       setLoad((l) => (l ? { ...l, entries: filtered } : l));
     } catch (err) {
       console.error("Failed to remove entry:", err);
+      try {
+        const filtered = (load?.entries ?? []).filter(
+          (en: any) => en.id !== entryId,
+        );
+        setLoad((l) => (l ? { ...l, entries: filtered } : l));
+        upsertPendingLoadByServerId(id, {
+          name: load?.name ?? "",
+          description: load?.description ?? "",
+          entries: filtered,
+        });
+        alert(
+          "Removal failed online: saved locally. Use Sync to upload when online.",
+        );
+      } catch (e) {
+        console.error("Failed to save pending removal locally:", e);
+      }
     }
   };
 

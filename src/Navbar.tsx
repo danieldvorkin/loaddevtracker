@@ -4,6 +4,7 @@ import type { User } from "firebase/auth";
 import { auth } from "./lib/firebase";
 import { NavLink, useNavigate } from "react-router-dom";
 import { FirebaseStatusBlinker } from "./FirebaseStatusBlinker";
+import { getPendingLoads, syncPendingLoads } from "./lib/offline";
 
 const navLinks = [
   { name: "Home", href: "/" },
@@ -15,9 +16,25 @@ export function Navbar({ showToast }: { showToast?: (m: string) => void }) {
   const [user, setUser] = useState<User | null | undefined>(undefined);
   const navigate = useNavigate();
 
+  const [pendingCount, setPendingCount] = useState(0);
+
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => setUser(u));
     return unsub;
+  }, []);
+
+  useEffect(() => {
+    const refresh = () => setPendingCount(getPendingLoads().length);
+    refresh();
+    const onStorage = (e: StorageEvent) => {
+      if (!e.key || e.key === "pendingLoads") refresh();
+    };
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("online", refresh);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("online", refresh);
+    };
   }, []);
 
   const handleSignOut = async () => {
@@ -59,6 +76,23 @@ export function Navbar({ showToast }: { showToast?: (m: string) => void }) {
             <FirebaseStatusBlinker />
 
             <div className="flex items-center space-x-4 border-l border-gray-700 pl-6">
+              <div className="mr-2">
+                <button
+                  onClick={async () => {
+                    if (pendingCount === 0) {
+                      showToast?.("No pending items to sync");
+                      return;
+                    }
+                    showToast?.("Starting sync...");
+                    const res = await syncPendingLoads((m) => showToast?.(m));
+                    showToast?.(`Synced ${res.synced ?? 0} items`);
+                    setPendingCount(getPendingLoads().length);
+                  }}
+                  className="px-3 py-1 text-sm bg-yellow-500 rounded-md hover:bg-yellow-600"
+                >
+                  Sync{pendingCount > 0 ? ` (${pendingCount})` : ""}
+                </button>
+              </div>
               {user === undefined ? (
                 <span className="text-xs text-gray-500">Loading...</span>
               ) : user ? (
